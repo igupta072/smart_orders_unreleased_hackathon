@@ -76,10 +76,6 @@ A production-grade, full-stack **Strategy Automation System** for US Perpetual F
 │                          ┌───────────▼────────────┐                               │
 │                          │  AutomationApiService   │                               │
 │                          └───────────┬────────────┘                               │
-│                                      │                                            │
-│                          ┌───────────▼────────────┐                               │
-│                          │  SharedPreferences      │  (offline-first local cache) │
-│                          └────────────────────────┘                               │
 └──────────────────────────────────┬───────────────────────────────────────────────┘
                                    │ HTTPS (Bearer JWT)
                                    │ /api/v1/cedefi/derivatives/HyperLiquid/*
@@ -123,14 +119,14 @@ A production-grade, full-stack **Strategy Automation System** for US Perpetual F
 
 | Service | Language | Port(s) | Responsibility |
 |---------|----------|---------|----------------|
-| **coindcx_app-production** | Flutter/Dart | — | Mobile frontend: strategy creation UI, rule management, order forms, offline-first persistence |
+| **coindcx_app-production** | Flutter/Dart | — | Mobile frontend: strategy creation UI, rule management, order forms |
 | **okto-bff** | Go 1.25.7 | 5001 | API gateway: JWT auth, request routing, circuit-breaker proxy to HL service |
 | **okto-hl-service** | Go 1.25.7 | 2002, 2005, 5003 | Core backend: strategy CRUD, order execution, background strategy executor, Hyperliquid integration |
 
 ### Data Flow
 
 ```
-User creates strategy → Flutter saves locally + POST to BFF
+User creates strategy → Flutter POST to BFF
                                                     │
 BFF authenticates (JWT) → proxies to HL Service ────┘
                                                     │
@@ -422,7 +418,7 @@ lib/components/dcx_us_perps/
 │   │   └── token_strategies_controller.dart       # Per-token rule list
 │   ├── repositories/
 │   │   └── automation_rule_repo.dart     # AutomationStrategyRepo, AutomationRuleRepo
-│   │                                     # (SharedPreferences + API sync)
+│   │                                     # (server-side persistence via API)
 │   └── network/
 │       ├── automation_api_service.dart    # HTTP client for BFF
 │       └── automation_request_models.dart # DTOs
@@ -438,7 +434,7 @@ lib/components/dcx_us_perps/
     └── us_perps_base_bindings.dart                # DI registration
 ```
 
-#### Offline-First Architecture
+#### Server-Side Persistence
 
 ```
                       ┌──────────────┐
@@ -446,23 +442,21 @@ lib/components/dcx_us_perps/
                       │  .save()     │
                       └──────┬───────┘
                              │
-                   ┌─────────┼──────────┐
-                   ▼                    ▼
-           ┌──────────────┐    ┌──────────────┐
-           │ API Call      │    │ SharedPrefs  │
-           │ (best-effort) │    │ (always)     │
-           └──────┬───────┘    └──────────────┘
-                  │
-           ┌──────┴───────┐
-           │ Success?     │
-           │  Y: synced   │
-           │  N: unsynced │
-           └──────────────┘
+                             ▼
+                    ┌──────────────┐
+                    │ API Call     │
+                    │ (BFF → HL)  │
+                    └──────┬──────┘
+                           │
+                    ┌──────┴──────┐
+                    │ Server      │
+                    │ persists to │
+                    │ PostgreSQL  │
+                    └─────────────┘
 ```
 
-- Write operations persist locally first (SharedPreferences)
-- API calls are best-effort; failures set `isSynced = false`
-- Background sync retries unsynced items on next load
+- All write operations are persisted server-side via the BFF → HL Service API chain
+- The server (PostgreSQL) is the single source of truth for strategies, rules, and pending orders
 - `isPublic = true` on the Dio client prevents 401 errors from triggering PIN lock
 
 ### BFF Proxy Layer
@@ -528,7 +522,6 @@ Full API documentation with request/response schemas: [`okto-hl-service/docs/str
 | **Mobile** | Dart | >=3.5.0 | Language |
 | **Mobile** | GetX | — | State management, dependency injection |
 | **Mobile** | Riverpod | — | Reactive state (other modules) |
-| **Mobile** | SharedPreferences | — | Offline-first local persistence |
 | **BFF** | Go | 1.25.7 | BFF service language |
 | **BFF** | Gin | — | HTTP framework |
 | **BFF** | Redis | 7+ | Caching |
@@ -707,7 +700,7 @@ Comprehensive test suites across all three services. Full test reports are in th
 | Order Signing E2E Tests | 3 | Real ECDSA key, full buildAndSign flow |
 | Executor Unit Tests | 35 | Price evaluation, sweep, concurrency, failure handling |
 | Flutter Model Tests | 26 | JSON round-trip, enums, copyWith |
-| Flutter Repo Tests | 17 | SharedPreferences CRUD, corrupted data handling |
+| Flutter Repo Tests | 17 | Repository CRUD, data handling |
 | Flutter Controller Tests | 26 | State management, validation, form logic |
 
 ### How to Run
@@ -781,7 +774,7 @@ See [`performance-testing/README.md`](performance-testing/README.md) for detaile
 | **Redis distributed locks** | `SET NX` with 60s TTL prevents duplicate execution | Exactly-once order submission |
 | **Circuit breaker** | Configurable per-service circuit breakers (BFF → HL, HL → Hyperliquid) | Cascading failure prevention |
 | **Interface segregation** | Narrow 4-method `exchangeService` interface for executor | Clean testability, minimal coupling |
-| **Offline-first mobile** | SharedPreferences local persistence + best-effort API sync | Zero-latency UI, resilient to network issues |
+| **Server-side persistence** | All strategy/rule data persisted via API to PostgreSQL | Single source of truth, consistent state |
 | **Bulk operations** | `sweepExpired` uses batch UPDATE for multiple rule IDs | Single DB round-trip |
 | **Dev auth bypass** | `ENV=DEVELOPMENT` + `user_id` query param skips JWT | Rapid local development |
 
@@ -873,8 +866,8 @@ See [`performance-testing/README.md`](performance-testing/README.md) for detaile
 
 | Scenario | Behavior |
 |----------|----------|
-| API call fails (Flutter) | Save locally with `isSynced = false`; retry on next sync |
-| BFF unreachable | Flutter falls back to local SharedPreferences |
+| API call fails (Flutter) | Error surfaced to user; retry via UI |
+| BFF unreachable | Flutter shows connectivity error; user retries when network restores |
 | HL Service Custodial lookup fails | Returns "user address not found" error |
 | Executor order fails | `retryCount` incremented; marked `failed` after 3 retries |
 | Rule expires | `sweepExpired()` bulk-marks as `expired` each tick |

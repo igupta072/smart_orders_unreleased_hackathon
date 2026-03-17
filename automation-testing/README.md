@@ -264,7 +264,7 @@
 | 16 | `JSON round-trip preserves all fields` | PASS |
 | 17 | `JSON round-trip handles null serverStrategyId` | PASS |
 | 18 | `copyWith updates specified fields only` | PASS |
-| 19 | `copyWith sets isSynced independently` | PASS |
+| 19 | `copyWith updates specified fields independently` | PASS |
 
 #### AutomationRule (7 tests)
 
@@ -281,7 +281,7 @@
 ### 2.2 Repository Persistence Tests (17 tests)
 
 **File:** `automation_repo_test.dart`
-**Scope:** SharedPreferences CRUD — uses `SharedPreferences.setMockInitialValues({})`
+**Scope:** Repository CRUD operations — persistence and data integrity validation
 
 #### Strategy Persistence (7 tests)
 
@@ -436,7 +436,7 @@ The BFF's strategy module is a **thin passthrough proxy** — each method extrac
 
 | Mock | Technique | Purpose |
 |------|-----------|---------|
-| `SharedPreferences` | `setMockInitialValues({})` | Repository test isolation |
+| Repository mocks | Mock persistence layer | Repository test isolation |
 | `IApiService` | Mock (mocktail) | Controller test — API call simulation |
 
 ---
@@ -513,4 +513,4 @@ go test -v ./...
 | **P2** | Negative SQL tests (Go) | Integration | DB constraint violations (duplicate IDs, FK) |
 | **P2** | Circuit breaker (BFF) | Unit | Strategy calls respect circuit breaker state |
 | **P3** | Load/stress testing | Performance | `go test -bench` with higher `-benchtime`, memory profiling |
-| **P3** | SharedPreferences scaling (Flutter) | Performance | Profile encode/decode with 500+ rules |
+| **P3** | API response handling at scale (Flutter) | Performance | Profile server response parsing with 500+ rules |
