@@ -1,4 +1,5 @@
-# Strategy Automation System — Full-Stack Technical Documentation
+# Coindcx Smart Orders
+## Strategy Automation System — Full-Stack Technical Documentation
 
 A production-grade, full-stack **Strategy Automation System** for US Perpetual Futures on Hyperliquid. Users define reusable trading strategies with configurable indicators, apply them to specific tokens, and have orders automatically executed when live market conditions are met.
 
